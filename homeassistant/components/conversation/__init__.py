@@ -3,6 +3,7 @@ import logging
 import re
 
 import voluptuous as vol
+import requests
 
 from homeassistant import core
 from homeassistant.components import http
@@ -167,6 +168,7 @@ async def _process(hass, text):
             )
             return response
 
+ALMOND_URL = 'http://127.0.0.1:3000/api/converse'
 
 class ConversationProcessView(http.HomeAssistantView):
     """View to retrieve shopping list content."""
@@ -179,14 +181,35 @@ class ConversationProcessView(http.HomeAssistantView):
         """Send a request for processing."""
         hass = request.app["hass"]
 
-        try:
-            intent_result = await _process(hass, data["text"])
-        except intent.IntentHandleError as err:
-            intent_result = intent.IntentResponse()
-            intent_result.async_set_speech(str(err))
+        #try:
+        #    intent_result = await _process(hass, data["text"])
+        #except intent.IntentHandleError as err:
+        #    intent_result = intent.IntentResponse()
+        #    intent_result.async_set_speech(str(err))
 
-        if intent_result is None:
-            intent_result = intent.IntentResponse()
-            intent_result.async_set_speech("Sorry, I didn't understand that")
+        #if intent_result is None:
+        #    intent_result = intent.IntentResponse()
+        #    intent_result.async_set_speech("Sorry, I didn't understand that")
 
+        # FIXME this should probably be async rather than blocking?
+
+        # pretend to be a same-origin request to bypass validation in almond
+        headers = {'origin': 'http://127.0.0.1:3000'}
+        response = requests.post(ALMOND_URL, json=dict(command=dict(type='command', text=data['text']))).json()
+
+        # FIXME handle native Almond response types for a richer experience
+        buffer = ''
+        for message in response['messages']:
+            if message['type'] == 'text':
+                buffer += '\n' + message['text']
+            elif message['type'] == 'picture':
+                buffer += '\n Picture: ' + message['url']
+            elif message['type'] == 'rdl':
+                buffer += '\n Link: ' + message['rdl']['displayTitle'] + ' ' + message['rdl']['webCallback']
+            elif message['type'] == 'choice':
+                buffer += '\n Choice: ' + message['title']
+            # FIXME handle other types of commands
+
+        intent_result = intent.IntentResponse()
+        intent_result.async_set_speech(buffer.strip())
         return self.json(intent_result)
